@@ -727,6 +727,31 @@ namespace Duplicati.Library.Main.Database
         {
             using (var cmd = m_connection.CreateCommand(transaction))
             {
+                // Re-create temp table to improve speed
+                var dropTempLengths = @"DROP TABLE IF EXISTS ""TempBlocksetLen""";
+                cmd.ExecuteNonQuery(dropTempLengths);
+                var createTempLengths = @"
+CREATE TEMPORARY TABLE ""TempBlocksetLen"" (
+    ""BlocksetID"" INTEGER PRIMARY KEY,
+    ""CalcLen"" INTEGER NOT NULL
+)
+";
+                cmd.ExecuteNonQuery(createTempLengths);
+                var fillTempLengths = @"
+INSERT INTO ""TempBlocksetLen""
+    SELECT 
+        ""BlocksetEntry"".""BlocksetID"",
+        SUM(""Block"".""Size"") AS ""CalcLen""
+    FROM
+        ""BlocksetEntry""
+    LEFT OUTER JOIN
+        ""Block""
+    ON
+        ""Block"".""ID"" = ""BlocksetEntry"".""BlockID""
+    GROUP BY ""BlocksetEntry"".""BlocksetID""
+";
+                cmd.ExecuteNonQuery(fillTempLengths);
+
                 // Calculate the lengths for each blockset                
                 var combinedLengths = @"
 SELECT 
@@ -736,18 +761,7 @@ SELECT
 FROM
     ""Blockset"" A
 LEFT OUTER JOIN
-    (
-        SELECT 
-            ""BlocksetEntry"".""BlocksetID"",
-            SUM(""Block"".""Size"") AS ""CalcLen""
-        FROM
-            ""BlocksetEntry""
-        LEFT OUTER JOIN
-            ""Block""
-        ON
-            ""Block"".""ID"" = ""BlocksetEntry"".""BlockID""
-        GROUP BY ""BlocksetEntry"".""BlocksetID""
-    ) B
+    ""TempBlocksetLen"" B
 ON
     ""A"".""ID"" = ""B"".""BlocksetID""
 
